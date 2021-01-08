@@ -11,10 +11,12 @@ import numpy as np
 
 if 'clean' in sys.argv:
     curdir = os.path.dirname(os.path.realpath(__file__))
-    shutil.rmtree(os.path.join(curdir, 'build'))
-    shutil.rmtree(os.path.join(curdir, 'dist'))
-    shutil.rmtree(os.path.join(curdir, f'{PACKAGE_NAME}.egg-info'))
-    shutil.rmtree(os.path.join(curdir, 'MANIFEST'))
+    for filepath in ['build', 'dist', f'{PACKAGE_NAME}.egg-info', 'MANIFEST']:
+        if os.path.exists(filepath):
+            if os.path.isfile(filepath):
+                os.remove(filepath)
+            else:
+                shutil.rmtree(filepath)
 
 class my_build_ext(build_ext):
     def build_extensions(self):
