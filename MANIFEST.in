@@ -1,0 +1,5 @@
+include bfloat16.cc
+include bfloat16.h
+include eigen/Eigen/Core
+recursive-include eigen/Eigen/src/plugins *.h
+recursive-include eigen/Eigen/src/Core *.h
