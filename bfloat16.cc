@@ -397,7 +397,30 @@ namespace greenwaves
 			return x.value;
 		}
 
+		// format bfloat16. Convert to a float and call format on that
+		PyObject *PyBfloat16_Format(PyObject *self, PyObject *format)
+		{
+			bfloat16 x = reinterpret_cast<PyBfloat16 *>(self)->value;
+			PyObject * f_obj = PyFloat_FromDouble(static_cast<double>(x));
+			PyObject * __format__str = PyUnicode_FromString("__format__");
+			PyObject * f_str = PyObject_CallMethodObjArgs(f_obj, __format__str, format, NULL);
+			Py_DECREF(__format__str);
+			Py_XDECREF(f_obj);
+			return f_str;
+		}
+
+		static PyMethodDef PyBfloat16_methods[] = {
+			{
+				"__format__",
+				(PyCFunction) PyBfloat16_Format,
+				METH_O,
+				"__format__ method for bfloat16"
+			},
+			{NULL}  /* Sentinel */
+		};
+
 		// Python type for PyBfloat16 objects.
+
 		PyTypeObject bfloat16_type = {
 			PyVarObject_HEAD_INIT(nullptr, 0) "bfloat16", // tp_name
 			sizeof(PyBfloat16),							  // tp_basicsize
@@ -430,7 +453,7 @@ namespace greenwaves
 			0,								  // tp_weaklistoffset
 			nullptr,						  // tp_iter
 			nullptr,						  // tp_iternext
-			nullptr,						  // tp_methods
+			PyBfloat16_methods,						  // tp_methods
 			nullptr,						  // tp_members
 			nullptr,						  // tp_getset
 			nullptr,						  // tp_base
@@ -452,6 +475,7 @@ namespace greenwaves
 			0,								  // tp_version_tag
 		};
 
+
 		// Numpy support
 
 		PyArray_ArrFuncs NPyBfloat16_ArrFuncs;
@@ -465,7 +489,7 @@ namespace greenwaves
 			// float16 != bfloat16.
 			// The downside of this is that NumPy scalar promotion does not work with
 			// bfloat16 values.
-			/*kind=*/'V',
+			/*kind=*/'O',
 			// TODO(phawkins): there doesn't seem to be a way of guaranteeing a type
 			// character is unique.
 			/*type=*/'E',
@@ -1630,6 +1654,8 @@ namespace greenwaves
 		}
 
 		bfloat16_type.tp_base = &PyGenericArrType_Type;
+
+		if (!bfloat16_type.tp_dict) { return false; }
 
 		if (PyType_Ready(&bfloat16_type) < 0)
 		{
