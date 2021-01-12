@@ -13,19 +13,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 /* Modified by martin.croome@greenwaves-technologies.com - Modifications to allow a standalone build
-   and remove requirements for pybind11 and other tensorflow dependencies */
+   and remove requirements for pybind11 and other tensorflow dependencies
+   Add support for scalar operations and python numeric types
+*/
 
 #include <iostream>
 #include <array>
 #include <locale>
 
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#define DEBUG_CALLS
 
 #include <Python.h>
 #include <cinttypes>
 #include <vector>
+#ifdef DEBUG_CALLS
+#include <iostream>
+#endif
 #include "eigen/Eigen/Core"
-
+#include <fenv.h>
 #include "numpy/arrayobject.h"
 #include "numpy/ufuncobject.h"
 
@@ -71,6 +77,7 @@ namespace greenwaves
 
 		// Forward declaration.
 		extern PyTypeObject bfloat16_type;
+		extern PyArray_Descr NPyBfloat16_Descr;
 
 		// Pointer to the bfloat16 type object we are using. This is either a pointer
 		// to bfloat16_type, if we choose to register it, or to the bfloat16 type
@@ -182,12 +189,56 @@ namespace greenwaves
 
 		bool SafeCastToBfloat16(PyObject *arg, bfloat16 *output)
 		{
+			if (PyFloat_Check(arg)||PyLong_Check(arg))
+			{
+				double val = PyFloat_AsDouble(arg);
+				*output = bfloat16(val);
+				return true;
+			}
+			else if (PyArray_CheckScalar(arg))
+			{
+				// This steals the reference
+				arg = PyArray_Return(reinterpret_cast<PyArrayObject *>(arg));
+			}
 			if (PyBfloat16_Check(arg))
 			{
 				*output = PyBfloat16_Bfloat16(arg);
 				return true;
 			}
 			return false;
+		}
+
+		bool ConvertToZeroLengthArray(PyObject *arg, Safe_PyObjectPtr *ref)
+		{
+			bfloat16 bfloat16_arg;
+			if (!CastToBfloat16(arg, &bfloat16_arg))
+			{
+				return false;
+			}
+			*ref = make_safe(PyArray_FromScalar(arg, NULL));
+			return true;
+		}
+
+		// If a and b are bfloats or scalar numpy arrays then return safe pointers
+		// to them. If either element is a non-scalar array then cast any scalars to arrays
+		int SafeCastPairToBfloat16(PyObject **arg_a, bfloat16 *a, PyObject **arg_b, bfloat16 *b, Safe_PyObjectPtr *ref_a, Safe_PyObjectPtr *ref_b)
+		{
+			if ((PyArray_Check(*arg_a) && !PyArray_IsAnyScalar(*arg_a))||(PyArray_Check(*arg_b) && !PyArray_IsAnyScalar(*arg_b))) {
+				if (!PyArray_Check(*arg_a)) {
+					if (!ConvertToZeroLengthArray(*arg_a, ref_a)) {
+						return 0;
+					}
+					*arg_a = ref_a->get();
+				}
+				if (!PyArray_Check(*arg_b)) {
+					if (!ConvertToZeroLengthArray(*arg_b, ref_b)) {
+						return 0;
+					}
+					*arg_b = ref_b->get();
+				}
+				return 2;
+			}
+			return (SafeCastToBfloat16(*arg_a, a) && SafeCastToBfloat16(*arg_b, b)?1:0);
 		}
 
 		// Converts a PyBfloat16 into a PyFloat.
@@ -215,41 +266,69 @@ namespace greenwaves
 		PyObject *PyBfloat16_Add(PyObject *a, PyObject *b)
 		{
 			bfloat16 x, y;
-			if (SafeCastToBfloat16(a, &x) && SafeCastToBfloat16(b, &y))
+			Safe_PyObjectPtr ref_a, ref_b;
+			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
+			if (ret == 1)
 			{
 				return PyBfloat16_FromBfloat16(x + y).release();
 			}
-			return PyArray_Type.tp_as_number->nb_add(a, b);
+			if (ret == 2)
+			{
+				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_add(a, b)));
+			}
+			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
+			return NULL;
 		}
 
 		PyObject *PyBfloat16_Subtract(PyObject *a, PyObject *b)
 		{
 			bfloat16 x, y;
-			if (SafeCastToBfloat16(a, &x) && SafeCastToBfloat16(b, &y))
+			Safe_PyObjectPtr ref_a, ref_b;
+			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
+			if (ret == 1)
 			{
 				return PyBfloat16_FromBfloat16(x - y).release();
 			}
-			return PyArray_Type.tp_as_number->nb_subtract(a, b);
+			if (ret == 2)
+			{
+				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_subtract(a, b)));
+			}
+			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
+			return NULL;
 		}
 
 		PyObject *PyBfloat16_Multiply(PyObject *a, PyObject *b)
 		{
 			bfloat16 x, y;
-			if (SafeCastToBfloat16(a, &x) && SafeCastToBfloat16(b, &y))
+			Safe_PyObjectPtr ref_a, ref_b;
+			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
+			if (ret == 1)
 			{
 				return PyBfloat16_FromBfloat16(x * y).release();
 			}
-			return PyArray_Type.tp_as_number->nb_multiply(a, b);
+			if (ret == 2)
+			{
+				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_multiply(a, b)));
+			}
+			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
+			return NULL;
 		}
 
 		PyObject *PyBfloat16_TrueDivide(PyObject *a, PyObject *b)
 		{
 			bfloat16 x, y;
-			if (SafeCastToBfloat16(a, &x) && SafeCastToBfloat16(b, &y))
+			Safe_PyObjectPtr ref_a, ref_b;
+			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
+			if (ret == 1)
 			{
 				return PyBfloat16_FromBfloat16(x / y).release();
 			}
-			return PyArray_Type.tp_as_number->nb_true_divide(a, b);
+			if (ret == 2)
+			{
+				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_true_divide(a, b)));
+			}
+			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
+			return NULL;
 		}
 
 		// Python number methods for PyBfloat16 objects.
@@ -340,10 +419,19 @@ namespace greenwaves
 		// Comparisons on PyBfloat16s.
 		PyObject *PyBfloat16_RichCompare(PyObject *a, PyObject *b, int op)
 		{
+#ifdef DEBUG_CALLS
+			std::cout << "PyBfloat16_RichCompare\n";
+#endif
 			bfloat16 x, y;
-			if (!SafeCastToBfloat16(a, &x) || !SafeCastToBfloat16(b, &y))
+			Safe_PyObjectPtr ref_a, ref_b;
+			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
+			if (ret == 0)
 			{
-				return PyGenericArrType_Type.tp_richcompare(a, b, op);
+				return PyBool_FromLong(false);
+			}
+			if (ret == 2)
+			{
+				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyObject_RichCompare(a, b, op)));
 			}
 			bool result;
 			switch (op)
@@ -419,6 +507,36 @@ namespace greenwaves
 			{NULL}  /* Sentinel */
 		};
 
+
+#ifdef IMPLEMENT_BUFFER
+		int PyBfloat16_getbuffer(PyObject *exporter, Py_buffer *view, int flags) {
+			view->obj = exporter;
+			Py_INCREF(exporter);
+			view->buf = &(reinterpret_cast<PyBfloat16 *>(exporter)->value);
+			view->len = 1;
+			view->itemsize = sizeof(bfloat16);
+			view->readonly = 0;
+			view->format = NULL;
+			if ((flags & PyBUF_FORMAT) == PyBUF_FORMAT)
+				view->format = (char *)"BB";
+			view->ndim = 1;
+			view->shape = NULL;
+			if ((flags & PyBUF_ND) == PyBUF_ND)
+				view->shape = &(view->len);
+			view->strides = NULL;
+			if ((flags & PyBUF_STRIDES) == PyBUF_STRIDES)
+				view->strides = &(view->itemsize);
+			view->suboffsets = NULL;
+			view->internal = NULL;
+			return 0;
+		}
+
+		static PyBufferProcs PyBfloat16_buffer_procs = {
+			&PyBfloat16_getbuffer,
+			NULL
+		};
+#endif
+
 		// Python type for PyBfloat16 objects.
 
 		PyTypeObject bfloat16_type = {
@@ -443,7 +561,11 @@ namespace greenwaves
 			PyBfloat16_Str,		  // tp_str
 			nullptr,			  // tp_getattro
 			nullptr,			  // tp_setattro
-			nullptr,			  // tp_as_buffer
+#ifdef IMPLEMENT_BUFFER
+			&PyBfloat16_buffer_procs,			  // tp_as_buffer
+#else
+			nullptr,
+#endif
 								  // tp_flags
 			Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 			"bfloat16 floating-point values", // tp_doc
@@ -535,33 +657,33 @@ namespace greenwaves
 			std::swap(p[0], p[1]);
 		}
 
-		int NPyBfloat16_Compare(const void *a, const void *b, void *arr)
-		{
-			bfloat16 x;
-			memcpy(&x, a, sizeof(bfloat16));
+		// int NPyBfloat16_Compare(const void *a, const void *b, void *arr)
+		// {
+		// 	bfloat16 x;
+		// 	memcpy(&x, a, sizeof(bfloat16));
 
-			bfloat16 y;
-			memcpy(&y, b, sizeof(bfloat16));
+		// 	bfloat16 y;
+		// 	memcpy(&y, b, sizeof(bfloat16));
 
-			if (x < y)
-			{
-				return -1;
-			}
-			if (y < x)
-			{
-				return 1;
-			}
-			// NaNs sort to the end.
-			if (!Eigen::numext::isnan(x) && Eigen::numext::isnan(y))
-			{
-				return -1;
-			}
-			if (Eigen::numext::isnan(x) && !Eigen::numext::isnan(y))
-			{
-				return 1;
-			}
-			return 0;
-		}
+		// 	if (x < y)
+		// 	{
+		// 		return -1;
+		// 	}
+		// 	if (y < x)
+		// 	{
+		// 		return 1;
+		// 	}
+		// 	// NaNs sort to the end.
+		// 	if (!Eigen::numext::isnan(x) && Eigen::numext::isnan(y))
+		// 	{
+		// 		return -1;
+		// 	}
+		// 	if (Eigen::numext::isnan(x) && !Eigen::numext::isnan(y))
+		// 	{
+		// 		return 1;
+		// 	}
+		// 	return 0;
+		// }
 
 		void NPyBfloat16_CopySwapN(void *dstv, npy_intp dstride, void *srcv,
 								   npy_intp sstride, npy_intp n, int swap, void *arr)
@@ -646,6 +768,9 @@ namespace greenwaves
 
 		int NPyBfloat16_CompareFunc(const void *v1, const void *v2, void *arr)
 		{
+#ifdef DEBUG_CALLS
+			std::cout << "NPyBfloat16_CompareFunc\n";
+#endif
 			bfloat16 b1 = *reinterpret_cast<const bfloat16 *>(v1);
 			bfloat16 b2 = *reinterpret_cast<const bfloat16 *>(v2);
 			if (b1 < b2)
@@ -655,6 +780,14 @@ namespace greenwaves
 			if (b1 > b2)
 			{
 				return 1;
+			}
+			if (!Eigen::numext::isnan(b1) && Eigen::numext::isnan(b2))
+			{
+				return 1;
+			}
+			if (Eigen::numext::isnan(b2) && !Eigen::numext::isnan(b1))
+			{
+				return -1;
 			}
 			return 0;
 		}
@@ -692,7 +825,6 @@ namespace greenwaves
 		}
 
 		// NumPy casts
-
 		template <typename T, typename Enable = void>
 		struct TypeDescriptor
 		{
@@ -822,6 +954,13 @@ namespace greenwaves
 			static int Dtype() { return NPY_COMPLEX128; }
 		};
 
+		template <>
+		struct TypeDescriptor<PyObject *>
+		{
+			typedef void * T;
+			static int Dtype() { return NPY_OBJECT; }
+		};
+
 		// Performs a NumPy array cast from type 'From' to 'To'.
 		template <typename From, typename To>
 		void NPyCast(void *from_void, void *to_void, npy_intp n, void *fromarr,
@@ -919,9 +1058,14 @@ namespace greenwaves
 			static void Call(char **args, const npy_intp *dimensions,
 							 const npy_intp *steps, void *data)
 			{
+#ifdef DEBUG_CALLS
+				std::cout << "BinaryUFunc->Call\n";
+#endif
 				const char *i0 = args[0];
 				const char *i1 = args[1];
 				char *o = args[2];
+				fenv_t fenv;
+				feholdexcept(&fenv);
 				for (npy_intp k = 0; k < *dimensions; k++)
 				{
 					auto x = *reinterpret_cast<const typename TypeDescriptor<InType>::T *>(i0);
@@ -932,6 +1076,18 @@ namespace greenwaves
 					i1 += steps[1];
 					o += steps[2];
 				}
+				if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
+					if (fetestexcept(FE_INVALID)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 invalid");
+					} else if (fetestexcept(FE_DIVBYZERO)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 divide by zero");
+					} else if (fetestexcept(FE_OVERFLOW)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 overflow");
+					} else if (fetestexcept(FE_UNDERFLOW)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 underflow");
+					}
+				}
+				fesetenv(&fenv);
 			}
 		};
 
@@ -946,9 +1102,14 @@ namespace greenwaves
 			static void Call(char **args, const npy_intp *dimensions,
 							 const npy_intp *steps, void *data)
 			{
+#ifdef DEBUG_CALLS
+				std::cout << "BinaryUFunc2->Call\n";
+#endif
 				const char *i0 = args[0];
 				const char *i1 = args[1];
 				char *o = args[2];
+				fenv_t fenv;
+				feholdexcept(&fenv);
 				for (npy_intp k = 0; k < *dimensions; k++)
 				{
 					auto x = *reinterpret_cast<const typename TypeDescriptor<InType>::T *>(i0);
@@ -960,8 +1121,47 @@ namespace greenwaves
 					i1 += steps[1];
 					o += steps[2];
 				}
+				if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
+					if (fetestexcept(FE_INVALID)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 invalid");
+					} else if (fetestexcept(FE_DIVBYZERO)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 divide by zero");
+					} else if (fetestexcept(FE_OVERFLOW)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 overflow");
+					} else if (fetestexcept(FE_UNDERFLOW)) {
+						PyErr_SetString(PyExc_ArithmeticError, "bfloat16 underflow");
+					}
+				}
+				fesetenv(&fenv);
 			}
 		};
+
+		// template <typename InType, typename OutType, typename Functor>
+		// struct BinaryUFuncObj
+		// {
+		// 	static std::vector<int> Types()
+		// 	{
+		// 		return {TypeDescriptor<InType>::Dtype(), NPY_OBJECT,
+		// 				TypeDescriptor<OutType>::Dtype()};
+		// 	}
+		// 	static void Call(char **args, const npy_intp *dimensions,
+		// 					 const npy_intp *steps, void *data)
+		// 	{
+		// 		const char *i0 = args[0];
+		// 		char *i1 = args[1];
+		// 		char *o = args[2];
+		// 		for (npy_intp k = 0; k < *dimensions; k++)
+		// 		{
+		// 			auto x = *reinterpret_cast<const typename TypeDescriptor<InType>::T *>(i0);
+		// 			bfloat16 y = *reinterpret_cast<bfloat16 *>(i1);
+		// 			*reinterpret_cast<typename TypeDescriptor<OutType>::T *>(o) =
+		// 				Functor()(x, y);
+		// 			i0 += steps[0];
+		// 			i1 += steps[1];
+		// 			o += steps[2];
+		// 		}
+		// 	}
+		// };
 
 		template <typename UFunc>
 		bool RegisterUFunc(PyObject *numpy, const char *name)
@@ -997,6 +1197,14 @@ namespace greenwaves
 			struct Add
 			{
 				bfloat16 operator()(bfloat16 a, bfloat16 b) { return a + b; }
+			};
+			struct AddScalarFloat
+			{
+				bfloat16 operator()(bfloat16 a, float b) { return a + bfloat16(b); }
+			};
+			struct ScalarFloatAdd
+			{
+				bfloat16 operator()(float a, bfloat16 b) { return bfloat16(a) + b; }
 			};
 			struct Subtract
 			{
@@ -1488,25 +1696,73 @@ namespace greenwaves
 			{
 				npy_bool operator()(bfloat16 a, bfloat16 b) { return a == b; }
 			};
+			struct EqFloat
+			{
+				npy_bool operator()(bfloat16 a, float b) { return a == bfloat16(b); }
+			};
+			struct EqDouble
+			{
+				npy_bool operator()(bfloat16 a, double b) { return a == bfloat16(b); }
+			};
 			struct Ne
 			{
 				npy_bool operator()(bfloat16 a, bfloat16 b) { return a != b; }
+			};
+			struct NeFloat
+			{
+				npy_bool operator()(bfloat16 a, float b) { return a != bfloat16(b); }
+			};
+			struct NeDouble
+			{
+				npy_bool operator()(bfloat16 a, double b) { return a != bfloat16(b); }
 			};
 			struct Lt
 			{
 				npy_bool operator()(bfloat16 a, bfloat16 b) { return a < b; }
 			};
+			struct LtFloat
+			{
+				npy_bool operator()(bfloat16 a, float b) { return a < bfloat16(b); }
+			};
+			struct LtDouble
+			{
+				npy_bool operator()(bfloat16 a, double b) { return a < bfloat16(b); }
+			};
 			struct Gt
 			{
 				npy_bool operator()(bfloat16 a, bfloat16 b) { return a > b; }
+			};
+			struct GtFloat
+			{
+				npy_bool operator()(bfloat16 a, float b) { return a > bfloat16(b); }
+			};
+			struct GtDouble
+			{
+				npy_bool operator()(bfloat16 a, double b) { return a > bfloat16(b); }
 			};
 			struct Le
 			{
 				npy_bool operator()(bfloat16 a, bfloat16 b) { return a <= b; }
 			};
+			struct LeFloat
+			{
+				npy_bool operator()(bfloat16 a, float b) { return a <= bfloat16(b); }
+			};
+			struct LeDouble
+			{
+				npy_bool operator()(bfloat16 a, double b) { return a <= bfloat16(b); }
+			};
 			struct Ge
 			{
 				npy_bool operator()(bfloat16 a, bfloat16 b) { return a >= b; }
+			};
+			struct GeFloat
+			{
+				npy_bool operator()(bfloat16 a, float b) { return a >= bfloat16(b); }
+			};
+			struct GeDouble
+			{
+				npy_bool operator()(bfloat16 a, double b) { return a >= bfloat16(b); }
 			};
 			struct Maximum
 			{
@@ -1666,7 +1922,6 @@ namespace greenwaves
 		PyArray_InitArrFuncs(&NPyBfloat16_ArrFuncs);
 		NPyBfloat16_ArrFuncs.getitem = NPyBfloat16_GetItem;
 		NPyBfloat16_ArrFuncs.setitem = NPyBfloat16_SetItem;
-		NPyBfloat16_ArrFuncs.compare = NPyBfloat16_Compare;
 		NPyBfloat16_ArrFuncs.copyswapn = NPyBfloat16_CopySwapN;
 		NPyBfloat16_ArrFuncs.copyswap = NPyBfloat16_CopySwap;
 		NPyBfloat16_ArrFuncs.nonzero = NPyBfloat16_NonZero;
@@ -1771,6 +2026,8 @@ namespace greenwaves
 
 		bool ok =
 			RegisterUFunc<BinaryUFunc<bfloat16, bfloat16, ufuncs::Add>>(numpy.get(), "add") &&
+			RegisterUFunc<BinaryUFunc2<float, bfloat16, bfloat16, ufuncs::ScalarFloatAdd>>(numpy.get(), "add") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, float, bfloat16, ufuncs::AddScalarFloat>>(numpy.get(), "add") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bfloat16, ufuncs::Subtract>>(numpy.get(), "subtract") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bfloat16, ufuncs::Multiply>>(
 				numpy.get(), "multiply") &&
@@ -1864,17 +2121,43 @@ namespace greenwaves
 				numpy.get(), "rad2deg") &&
 
 			// Comparison functions
+			// RegisterUFunc<BinaryUFuncObj<bfloat16, bool, ufuncs::Eq>>(numpy.get(),
+			// 													   "equal") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bool, ufuncs::Eq>>(numpy.get(),
+																   "equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, float, bool, ufuncs::EqFloat>>(numpy.get(),
+																   "equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, double, bool, ufuncs::EqDouble>>(numpy.get(),
 																   "equal") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bool, ufuncs::Ne>>(numpy.get(),
 																   "not_equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, float, bool, ufuncs::NeFloat>>(numpy.get(),
+																   "not_equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, double, bool, ufuncs::NeDouble>>(numpy.get(),
+																   "not_equal") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bool, ufuncs::Lt>>(numpy.get(),
+																   "less") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, float, bool, ufuncs::LtFloat>>(numpy.get(),
+																   "less") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, double, bool, ufuncs::LtDouble>>(numpy.get(),
 																   "less") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bool, ufuncs::Gt>>(numpy.get(),
 																   "greater") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, float, bool, ufuncs::GtFloat>>(numpy.get(),
+																   "greater") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, double, bool, ufuncs::GtDouble>>(numpy.get(),
+																   "greater") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bool, ufuncs::Le>>(numpy.get(),
 																   "less_equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, float, bool, ufuncs::LeFloat>>(numpy.get(),
+																   "less_equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, double, bool, ufuncs::LeDouble>>(numpy.get(),
+																   "less_equal") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bool, ufuncs::Ge>>(numpy.get(),
+																   "greater_equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, float, bool, ufuncs::GeFloat>>(numpy.get(),
+																   "greater_equal") &&
+			RegisterUFunc<BinaryUFunc2<bfloat16, double, bool, ufuncs::GeDouble>>(numpy.get(),
 																   "greater_equal") &&
 			RegisterUFunc<BinaryUFunc<bfloat16, bfloat16, ufuncs::Maximum>>(
 				numpy.get(), "maximum") &&
