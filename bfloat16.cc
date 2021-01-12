@@ -22,7 +22,7 @@ limitations under the License.
 #include <locale>
 
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#define DEBUG_CALLS
+// #define DEBUG_CALLS
 
 #include <Python.h>
 #include <cinttypes>
@@ -104,15 +104,9 @@ namespace greenwaves
 		}
 
 		// Constructs a PyBfloat16 object from a bfloat16.
-		Safe_PyObjectPtr PyBfloat16_FromBfloat16(bfloat16 x)
+		PyObject *PyBfloat16_FromBfloat16(bfloat16 x)
 		{
-			Safe_PyObjectPtr ref = make_safe(bfloat16_type.tp_alloc(&bfloat16_type, 0));
-			PyBfloat16 *p = reinterpret_cast<PyBfloat16 *>(ref.get());
-			if (p)
-			{
-				p->value = x;
-			}
-			return ref;
+			return PyArray_Scalar(&x, &NPyBfloat16_Descr, NULL);
 		}
 
 		// Converts a Python object to a bfloat16 value. Returns true on success,
@@ -187,190 +181,6 @@ namespace greenwaves
 			return false;
 		}
 
-		bool SafeCastToBfloat16(PyObject *arg, bfloat16 *output)
-		{
-			if (PyFloat_Check(arg)||PyLong_Check(arg))
-			{
-				double val = PyFloat_AsDouble(arg);
-				*output = bfloat16(val);
-				return true;
-			}
-			else if (PyArray_CheckScalar(arg))
-			{
-				// This steals the reference
-				arg = PyArray_Return(reinterpret_cast<PyArrayObject *>(arg));
-			}
-			if (PyBfloat16_Check(arg))
-			{
-				*output = PyBfloat16_Bfloat16(arg);
-				return true;
-			}
-			return false;
-		}
-
-		bool ConvertToZeroLengthArray(PyObject *arg, Safe_PyObjectPtr *ref)
-		{
-			bfloat16 bfloat16_arg;
-			if (!CastToBfloat16(arg, &bfloat16_arg))
-			{
-				return false;
-			}
-			*ref = make_safe(PyArray_FromScalar(arg, NULL));
-			return true;
-		}
-
-		// If a and b are bfloats or scalar numpy arrays then return safe pointers
-		// to them. If either element is a non-scalar array then cast any scalars to arrays
-		int SafeCastPairToBfloat16(PyObject **arg_a, bfloat16 *a, PyObject **arg_b, bfloat16 *b, Safe_PyObjectPtr *ref_a, Safe_PyObjectPtr *ref_b)
-		{
-			if ((PyArray_Check(*arg_a) && !PyArray_IsAnyScalar(*arg_a))||(PyArray_Check(*arg_b) && !PyArray_IsAnyScalar(*arg_b))) {
-				if (!PyArray_Check(*arg_a)) {
-					if (!ConvertToZeroLengthArray(*arg_a, ref_a)) {
-						return 0;
-					}
-					*arg_a = ref_a->get();
-				}
-				if (!PyArray_Check(*arg_b)) {
-					if (!ConvertToZeroLengthArray(*arg_b, ref_b)) {
-						return 0;
-					}
-					*arg_b = ref_b->get();
-				}
-				return 2;
-			}
-			return (SafeCastToBfloat16(*arg_a, a) && SafeCastToBfloat16(*arg_b, b)?1:0);
-		}
-
-		// Converts a PyBfloat16 into a PyFloat.
-		PyObject *PyBfloat16_Float(PyObject *self)
-		{
-			bfloat16 x = PyBfloat16_Bfloat16(self);
-			return PyFloat_FromDouble(static_cast<double>(x));
-		}
-
-		// Converts a PyBfloat16 into a PyInt.
-		PyObject *PyBfloat16_Int(PyObject *self)
-		{
-			bfloat16 x = PyBfloat16_Bfloat16(self);
-			long y = static_cast<long>(x); // NOLINT
-			return PyLong_FromLong(y);
-		}
-
-		// Negates a PyBfloat16.
-		PyObject *PyBfloat16_Negative(PyObject *self)
-		{
-			bfloat16 x = PyBfloat16_Bfloat16(self);
-			return PyBfloat16_FromBfloat16(-x).release();
-		}
-
-		PyObject *PyBfloat16_Add(PyObject *a, PyObject *b)
-		{
-			bfloat16 x, y;
-			Safe_PyObjectPtr ref_a, ref_b;
-			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
-			if (ret == 1)
-			{
-				return PyBfloat16_FromBfloat16(x + y).release();
-			}
-			if (ret == 2)
-			{
-				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_add(a, b)));
-			}
-			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
-			return NULL;
-		}
-
-		PyObject *PyBfloat16_Subtract(PyObject *a, PyObject *b)
-		{
-			bfloat16 x, y;
-			Safe_PyObjectPtr ref_a, ref_b;
-			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
-			if (ret == 1)
-			{
-				return PyBfloat16_FromBfloat16(x - y).release();
-			}
-			if (ret == 2)
-			{
-				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_subtract(a, b)));
-			}
-			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
-			return NULL;
-		}
-
-		PyObject *PyBfloat16_Multiply(PyObject *a, PyObject *b)
-		{
-			bfloat16 x, y;
-			Safe_PyObjectPtr ref_a, ref_b;
-			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
-			if (ret == 1)
-			{
-				return PyBfloat16_FromBfloat16(x * y).release();
-			}
-			if (ret == 2)
-			{
-				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_multiply(a, b)));
-			}
-			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
-			return NULL;
-		}
-
-		PyObject *PyBfloat16_TrueDivide(PyObject *a, PyObject *b)
-		{
-			bfloat16 x, y;
-			Safe_PyObjectPtr ref_a, ref_b;
-			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
-			if (ret == 1)
-			{
-				return PyBfloat16_FromBfloat16(x / y).release();
-			}
-			if (ret == 2)
-			{
-				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyArray_Type.tp_as_number->nb_true_divide(a, b)));
-			}
-			PyErr_Format(PyExc_TypeError, "invalid operation for %s and %s", a->ob_type->tp_name, b->ob_type->tp_name);
-			return NULL;
-		}
-
-		// Python number methods for PyBfloat16 objects.
-		PyNumberMethods PyBfloat16_AsNumber = {
-			PyBfloat16_Add,		 // nb_add
-			PyBfloat16_Subtract, // nb_subtract
-			PyBfloat16_Multiply, // nb_multiply
-			nullptr,			 // nb_remainder
-			nullptr,			 // nb_divmod
-			nullptr,			 // nb_power
-			PyBfloat16_Negative, // nb_negative
-			nullptr,			 // nb_positive
-			nullptr,			 // nb_absolute
-			nullptr,			 // nb_nonzero
-			nullptr,			 // nb_invert
-			nullptr,			 // nb_lshift
-			nullptr,			 // nb_rshift
-			nullptr,			 // nb_and
-			nullptr,			 // nb_xor
-			nullptr,			 // nb_or
-			PyBfloat16_Int,		 // nb_int
-			nullptr,			 // reserved
-			PyBfloat16_Float,	 // nb_float
-
-			nullptr, // nb_inplace_add
-			nullptr, // nb_inplace_subtract
-			nullptr, // nb_inplace_multiply
-			nullptr, // nb_inplace_remainder
-			nullptr, // nb_inplace_power
-			nullptr, // nb_inplace_lshift
-			nullptr, // nb_inplace_rshift
-			nullptr, // nb_inplace_and
-			nullptr, // nb_inplace_xor
-			nullptr, // nb_inplace_or
-
-			nullptr,			   // nb_floor_divide
-			PyBfloat16_TrueDivide, // nb_true_divide
-			nullptr,			   // nb_inplace_floor_divide
-			nullptr,			   // nb_inplace_true_divide
-			nullptr,			   // nb_index
-		};
-
 		// Constructs a new PyBfloat16.
 		PyObject *PyBfloat16_New(PyTypeObject *type, PyObject *args, PyObject *kwds)
 		{
@@ -396,7 +206,7 @@ namespace greenwaves
 			}
 			else if (CastToBfloat16(arg, &value))
 			{
-				return PyBfloat16_FromBfloat16(value).release();
+				return PyBfloat16_FromBfloat16(value);
 			}
 			else if (PyArray_Check(arg))
 			{
@@ -417,48 +227,26 @@ namespace greenwaves
 		}
 
 		// Comparisons on PyBfloat16s.
-		PyObject *PyBfloat16_RichCompare(PyObject *a, PyObject *b, int op)
+		PyObject *PyBfloat16_RichCompare(PyObject *self, PyObject *other, int cmp_op)
 		{
-#ifdef DEBUG_CALLS
-			std::cout << "PyBfloat16_RichCompare\n";
-#endif
-			bfloat16 x, y;
-			Safe_PyObjectPtr ref_a, ref_b;
-			int ret = SafeCastPairToBfloat16(&a, &x, &b, &y, &ref_a, &ref_b);
-			if (ret == 0)
+			PyObject *arr, *ret;
+
+			arr = PyArray_FromScalar(self, NULL);
+			if (arr == NULL)
 			{
-				return PyBool_FromLong(false);
-			}
-			if (ret == 2)
-			{
-				return PyArray_Return(reinterpret_cast<PyArrayObject *>(PyObject_RichCompare(a, b, op)));
-			}
-			bool result;
-			switch (op)
-			{
-			case Py_LT:
-				result = x < y;
-				break;
-			case Py_LE:
-				result = x <= y;
-				break;
-			case Py_EQ:
-				result = x == y;
-				break;
-			case Py_NE:
-				result = x != y;
-				break;
-			case Py_GT:
-				result = x > y;
-				break;
-			case Py_GE:
-				result = x >= y;
-				break;
-			default:
-				PyErr_SetString(PyExc_ValueError, "Invalid op type");
 				return NULL;
 			}
-			return PyBool_FromLong(result);
+			if (PyBfloat16_Check(other))
+			{
+				PyObject *arr_other;
+				arr_other = PyArray_FromScalar(other, NULL);
+				ret = Py_TYPE(arr)->tp_richcompare(arr, arr_other, cmp_op);
+				Py_DECREF(arr_other);
+			} else {
+				ret = Py_TYPE(arr)->tp_richcompare(arr, other, cmp_op);
+			}
+			Py_DECREF(arr);
+			return ret;
 		}
 
 		// Implementation of repr() for PyBfloat16.
@@ -484,6 +272,58 @@ namespace greenwaves
 			bfloat16 x = reinterpret_cast<PyBfloat16 *>(self)->value;
 			return x.value;
 		}
+
+		// Converts a PyBfloat16 into a PyFloat.
+		PyObject* PyBfloat16_Float(PyObject* self) {
+			bfloat16 x = PyBfloat16_Bfloat16(self);
+			return PyFloat_FromDouble(static_cast<double>(x));
+		}
+
+		// Converts a PyBfloat16 into a PyInt.
+		PyObject* PyBfloat16_Int(PyObject* self) {
+			bfloat16 x = PyBfloat16_Bfloat16(self);
+			long y = static_cast<long>(x);  // NOLINT
+			return PyLong_FromLong(y);
+		}
+
+		PyNumberMethods PyBfloat16_AsNumber = {
+			nullptr,     	  	// nb_add
+			nullptr,  			// nb_subtract
+			nullptr,  			// nb_multiply
+			nullptr,              // nb_remainder
+			nullptr,              // nb_divmod
+			nullptr,              // nb_power
+			nullptr,  			  // nb_negative
+			nullptr,              // nb_positive
+			nullptr,              // nb_absolute
+			nullptr,              // nb_nonzero
+			nullptr,              // nb_invert
+			nullptr,              // nb_lshift
+			nullptr,              // nb_rshift
+			nullptr,              // nb_and
+			nullptr,              // nb_xor
+			nullptr,              // nb_or
+			PyBfloat16_Int,       // nb_int
+			nullptr,              // reserved
+			PyBfloat16_Float,     // nb_float
+
+			nullptr,  // nb_inplace_add
+			nullptr,  // nb_inplace_subtract
+			nullptr,  // nb_inplace_multiply
+			nullptr,  // nb_inplace_remainder
+			nullptr,  // nb_inplace_power
+			nullptr,  // nb_inplace_lshift
+			nullptr,  // nb_inplace_rshift
+			nullptr,  // nb_inplace_and
+			nullptr,  // nb_inplace_xor
+			nullptr,  // nb_inplace_or
+
+			nullptr,                // nb_floor_divide
+			nullptr,  				// nb_true_divide
+			nullptr,                // nb_inplace_floor_divide
+			nullptr,                // nb_inplace_true_divide
+			nullptr,                // nb_index
+		};
 
 		// format bfloat16. Convert to a float and call format on that
 		PyObject *PyBfloat16_Format(PyObject *self, PyObject *format)
@@ -578,7 +418,7 @@ namespace greenwaves
 			PyBfloat16_methods,						  // tp_methods
 			nullptr,						  // tp_members
 			nullptr,						  // tp_getset
-			nullptr,						  // tp_base
+			nullptr,			  // tp_base
 			nullptr,						  // tp_dict
 			nullptr,						  // tp_descr_get
 			nullptr,						  // tp_descr_set
@@ -611,12 +451,12 @@ namespace greenwaves
 			// float16 != bfloat16.
 			// The downside of this is that NumPy scalar promotion does not work with
 			// bfloat16 values.
-			/*kind=*/'O',
+			/*kind=*/'g',
 			// TODO(phawkins): there doesn't seem to be a way of guaranteeing a type
 			// character is unique.
 			/*type=*/'E',
 			/*byteorder=*/'=',
-			/*flags=*/NPY_NEEDS_PYAPI | NPY_USE_GETITEM | NPY_USE_SETITEM,
+			/*flags=*/NPY_NEEDS_PYAPI, // | NPY_USE_GETITEM | NPY_USE_SETITEM,
 			/*type_num=*/0,
 			/*elsize=*/sizeof(bfloat16),
 			/*alignment=*/alignof(bfloat16),
@@ -631,11 +471,12 @@ namespace greenwaves
 
 		// Implementations of NumPy array methods.
 
-		PyObject *NPyBfloat16_GetItem(void *data, void *arr)
+		PyObject *NPyBfloat16_GetItem(void *data, void  *arr)
 		{
+
 			bfloat16 x;
-			memcpy(&x, data, sizeof(bfloat16));
-			return PyBfloat16_FromBfloat16(x).release();
+			NPyBfloat16_Descr.f->copyswap(&x, data, !PyArray_ISNOTSWAPPED(reinterpret_cast<PyArrayObject *>(arr)), NULL);
+			return PyBfloat16_FromBfloat16(x);
 		}
 
 		int NPyBfloat16_SetItem(PyObject *item, void *data, void *arr)
@@ -656,34 +497,6 @@ namespace greenwaves
 			char *p = reinterpret_cast<char *>(value);
 			std::swap(p[0], p[1]);
 		}
-
-		// int NPyBfloat16_Compare(const void *a, const void *b, void *arr)
-		// {
-		// 	bfloat16 x;
-		// 	memcpy(&x, a, sizeof(bfloat16));
-
-		// 	bfloat16 y;
-		// 	memcpy(&y, b, sizeof(bfloat16));
-
-		// 	if (x < y)
-		// 	{
-		// 		return -1;
-		// 	}
-		// 	if (y < x)
-		// 	{
-		// 		return 1;
-		// 	}
-		// 	// NaNs sort to the end.
-		// 	if (!Eigen::numext::isnan(x) && Eigen::numext::isnan(y))
-		// 	{
-		// 		return -1;
-		// 	}
-		// 	if (Eigen::numext::isnan(x) && !Eigen::numext::isnan(y))
-		// 	{
-		// 		return 1;
-		// 	}
-		// 	return 0;
-		// }
 
 		void NPyBfloat16_CopySwapN(void *dstv, npy_intp dstride, void *srcv,
 								   npy_intp sstride, npy_intp n, int swap, void *arr)
@@ -1911,10 +1724,10 @@ namespace greenwaves
 
 		bfloat16_type.tp_base = &PyGenericArrType_Type;
 
-		if (!bfloat16_type.tp_dict) { return false; }
-
 		if (PyType_Ready(&bfloat16_type) < 0)
 		{
+			PyErr_Print();
+	        PyErr_SetString(PyExc_SystemError, "could not initialize bfloat16");
 			return false;
 		}
 
@@ -2231,23 +2044,32 @@ namespace greenwaves
 
 	int Bfloat16NumpyType() { return npy_bfloat16; }
 
-	static PyModuleDef bfloat16module = {
+	static PyMethodDef Bfloat16ModuleMethods[] = {
+		{NULL, NULL, 0, NULL}
+	};
+
+	static struct PyModuleDef Bfloat16Module = {
 		PyModuleDef_HEAD_INIT,
-		.m_name = "bfloat16",
-		.m_doc = "Standalone module that adds bfloat16 dtype to numpy.",
-		.m_size = -1};
+		"numpy_bfloat16",
+		NULL,
+		-1,
+		Bfloat16ModuleMethods,
+		NULL,
+		NULL,
+		NULL,
+		NULL
+	};
 
 	PyMODINIT_FUNC
 	PyInit_bfloat16(void)
 	{
 		PyObject *m;
-		if (PyType_Ready(&bfloat16_type) < 0)
-			return NULL;
-		m = PyModule_Create(&bfloat16module);
+		m = PyModule_Create(&Bfloat16Module);
 		if (m == NULL)
 			return NULL;
 		RegisterNumpyBfloat16();
 		Py_INCREF(&bfloat16_type);
+		Py_XINCREF(&NPyBfloat16_Descr);
 		if (PyModule_AddObject(m, "bfloat16", (PyObject *)&bfloat16_type) < 0)
 		{
 			Py_DECREF(&bfloat16_type);

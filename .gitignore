@@ -1,4 +1,8 @@
 *.egg-info
-./MANIFEST
+MANIFEST
 build/
 dist/
+.vscode
+.pytest_cache/
+.gdb_history
+__pycache__

@@ -30,6 +30,7 @@ def test_calc():
     r = a2 / a1
     assert np.array_equal(r, np.array([0.000000, 0.408203, 0.816406, 1.226562], dtype=bfloat16))
     ok = False
+    np.seterr(divide='ignore', invalid='ignore')
     r = a1 / 0.0
     # promotes to float so ieee reporting which is NAN
     assert np.array_equal(r, np.array([float('inf'), float('inf'), float('inf'), float('inf')], dtype=np.float32))
@@ -40,5 +41,6 @@ def test_calc():
     assert np.sum(a1) == 9.8125
 
 def test_scalars():
-    r1 = bfloat16(1.3) == np.array(1.3, dtype=bfloat16)
-    x = 1
+    assert bfloat16(1.3) == np.array(1.3, dtype=bfloat16)
+    assert int(bfloat16(1.2)) == 1
+    assert float(bfloat16(1.2)) == 1.203125
