@@ -33,7 +33,7 @@ module1 = Extension(PACKAGE_NAME,
                     include_dirs=[np.get_include()])
 
 setup(name=PACKAGE_NAME,
-      version='1.0',
+      version='1.1',
       description='Numpy bfloat16 package',
       license='Apache',
       author='GreenWaves Technologies',
