@@ -34,6 +34,7 @@ limitations under the License.
 #include <fenv.h>
 #include "numpy/arrayobject.h"
 #include "numpy/ufuncobject.h"
+#include <memory>
 
 namespace greenwaves
 {
