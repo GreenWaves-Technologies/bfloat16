@@ -30,7 +30,8 @@ class my_build_ext(build_ext):
 
 module1 = Extension(PACKAGE_NAME,
                     sources=['bfloat16.cc'],
-                    include_dirs=[np.get_include()])
+                    include_dirs=[np.get_include()],
+                    extra_compile_args=['-std=c++11'])
 
 setup(name=PACKAGE_NAME,
       version='1.1',
