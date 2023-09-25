@@ -2,8 +2,10 @@ import os
 import sys
 import shutil
 from distutils.command.build_ext import build_ext
-from distutils.core import Extension, setup
-from distutils.sysconfig import customize_compiler
+
+from setuptools import Extension, setup
+
+# from distutils.sysconfig import customize_compiler
 
 PACKAGE_NAME='bfloat16'
 
@@ -18,29 +20,31 @@ if 'clean' in sys.argv:
             else:
                 shutil.rmtree(filepath)
 
-class my_build_ext(build_ext):
-    def build_extensions(self):
-        customize_compiler(self.compiler)
-        try:
-            self.compiler.compiler_so.remove("-Wstrict-prototypes")
-        except (AttributeError, ValueError):
-            pass
-        build_ext.build_extensions(self)
+# class my_build_ext(build_ext):
+#     def build_extensions(self):
+#         customize_compiler(self.compiler)
+#         try:
+#             self.compiler.compiler_so.remove("-Wstrict-prototypes")
+#         except (AttributeError, ValueError):
+#             pass
+#         build_ext.build_extensions(self)
 
 
 module1 = Extension(PACKAGE_NAME,
                     sources=['bfloat16.cc'],
-                    include_dirs=[np.get_include()],
+                    include_dirs=[np.get_include(), "eigen/Eigen"],
                     extra_compile_args=['-std=c++11'])
 
 setup(name=PACKAGE_NAME,
-      version='1.1',
+      version='1.4.0',
       description='Numpy bfloat16 package',
-      license='Apache',
+      requires=["numpy"],
+      py_modules=[],
       author='GreenWaves Technologies',
       author_email='support@greenwaves-technologies.com',
       url='https://github.com/GreenWaves-Technologies/bfloat16',
       download_url = 'https://github.com/GreenWaves-Technologies/bfloat16/archive/refs/tags/1.0.tar.gz',
       install_requires=[],
-      ext_modules=[module1],
-      cmdclass={'build_ext': my_build_ext})
+      ext_modules=[module1])
+# ,
+#       cmdclass={'build_ext': my_build_ext})

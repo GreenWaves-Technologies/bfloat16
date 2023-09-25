@@ -34,9 +34,9 @@ def test_calc():
     r = a1 / 0.0
     # promotes to float so ieee reporting which is NAN
     assert np.array_equal(r, np.array([float('inf'), float('inf'), float('inf'), float('inf')], dtype=np.float32))
-    assert np.all(np.isclose(a1 - a2, a1.astype(np.float32) - a2.astype(np.float)))
+    assert np.all(np.isclose(a1 - a2, a1.astype(np.float32) - a2.astype(np.float32)))
     r1 = a1 * a2
-    r2 = a1.astype(np.float32) * a2.astype(np.float)
+    r2 = a1.astype(np.float32) * a2.astype(np.float32)
     assert np.all(np.isclose(r1, r2, atol=0.02))
     assert np.sum(a1) == 9.8125
 

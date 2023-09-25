@@ -1,0 +1,28 @@
+[build-system]
+requires = [
+  "setuptools>=61.0",
+  "oldest-supported-numpy; python_version>='3.9'",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bfloat16"
+version = "1.2.0"
+authors = [
+  { name="GreenWaves Technologies", email="support@greenwaves-technologies.com" },
+]
+description = "Numpy bfloat16 package"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/GreenWaves-Technologies/bfloat16"
+"Bug Tracker" = "https://github.com/GreenWaves-Technologies/bfloat16/issues"
+
+[tool.cibuildwheel]
+skip = ["cp36-*", "cp37-*", "cp38-*", "*-win32", "*-manylinux_i686", "pp*", "*-musllinux*"]

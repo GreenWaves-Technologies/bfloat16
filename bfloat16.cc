@@ -1661,7 +1661,7 @@ namespace greenwaves
 							// Smallest subnormal signed like `to`.
 							uint16_t out_int = (to_as_int & sign_mask) | 1;
 							bfloat16 out;
-							memcpy(&out, &out_int, sizeof(bfloat16));
+							memcpy((void *) &out, &out_int, sizeof(bfloat16));
 							return out;
 						}
 					}
@@ -1673,7 +1673,7 @@ namespace greenwaves
 						(from_abs > to_abs || from_sign != to_sign) ? 0xFFFF : 0x0001;
 					uint16_t out_int = from_as_int + magnitude_adjustment;
 					bfloat16 out;
-					memcpy(&out, &out_int, sizeof(bfloat16));
+					memcpy((void *) &out, &out_int, sizeof(bfloat16));
 					return out;
 				}
 			};
